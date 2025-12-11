@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GD Auto TW &ndash; Image Gallery</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        --page-bg: #f6f7fb;
+        --card-bg: #ffffff;
+        --card-border: rgba(17, 24, 39, 0.08);
+        --text-primary: #111827;
+        --text-secondary: #4b5563;
+        --accent: #2563eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--page-bg);
+        color: var(--text-primary);
+        padding: clamp(1.5rem, 3vw, 3rem);
+        display: flex;
+        flex-direction: column;
+        gap: 2.5rem;
+      }
+
+      header {
+        max-width: 860px;
+      }
+
+      h1 {
+        margin-bottom: 0.5rem;
+        font-size: clamp(2rem, 5vw, 3rem);
+      }
+
+      p {
+        margin: 0;
+        color: var(--text-secondary);
+        line-height: 1.6;
+      }
+
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1.5rem;
+      }
+
+      .card {
+        background: var(--card-bg);
+        border-radius: 1rem;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .card img {
+        width: 100%;
+        display: block;
+        object-fit: cover;
+        aspect-ratio: 4 / 5;
+      }
+
+      .card__body {
+        padding: 1rem 1.25rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+      }
+
+      .card__title {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .card__meta {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+
+      .card__cta {
+        margin-top: auto;
+        font-size: 0.95rem;
+        color: var(--accent);
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      footer {
+        margin-top: auto;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page-bg: #050816;
+          --card-bg: #0b1120;
+          --card-border: rgba(255, 255, 255, 0.04);
+          --text-primary: #f8fafc;
+          --text-secondary: #94a3b8;
+        }
+
+        body {
+          background: radial-gradient(circle at top, rgba(37, 99, 235, 0.25), rgba(2, 6, 23, 0.95));
+        }
+
+        .card {
+          box-shadow: 0 20px 40px rgba(2, 6, 23, 0.8);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <p>GD Auto Tailwind &bull; Image Delivery</p>
+      <h1>Passive Income Gallery</h1>
+      <p>
+        GitHub Pages automatically serves this repository, so every JPEG inside the
+        <code>images/</code> folder becomes instantly shareable. Share the public link or
+        right-click any card to save the source image.
+      </p>
+    </header>
+
+    <main>
+      <section id="gallery" class="gallery" aria-live="polite"></section>
+    </main>
+
+    <footer>
+      Last updated <span id="updated"></span>. Drop new JPEGs into <code>images/</code> and redeploy to refresh the grid.
+    </footer>
+
+    <script>
+      const imageFiles = [
+        "images/passive-income-1.jpg",
+        "images/passive-income-2.jpg",
+        "images/passive-income-3.jpg",
+        "images/passive-income-4.jpg",
+        "images/passive-income-5.jpg",
+      ];
+
+      const gallery = document.getElementById("gallery");
+
+      const formatTitle = (path) =>
+        path
+          .replace(/^images\//, "")
+          .replace(/\.[^.]+$/, "")
+          .replace(/[-_]+/g, " ")
+          .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      imageFiles.forEach((file) => {
+        const card = document.createElement("article");
+        card.className = "card";
+
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.src = file;
+        img.alt = `${formatTitle(file)} preview`;
+        card.appendChild(img);
+
+        const body = document.createElement("div");
+        body.className = "card__body";
+
+        const title = document.createElement("h2");
+        title.className = "card__title";
+        title.textContent = formatTitle(file);
+
+        const meta = document.createElement("p");
+        meta.className = "card__meta";
+        meta.textContent = file;
+
+        const link = document.createElement("a");
+        link.className = "card__cta";
+        link.href = file;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = "Open original";
+
+        body.appendChild(title);
+        body.appendChild(meta);
+        body.appendChild(link);
+        card.appendChild(body);
+
+        gallery.appendChild(card);
+      });
+
+      const updated = document.getElementById("updated");
+      updated.textContent = new Date().toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    </script>
+  </body>
+</html>
