@@ -257,7 +257,13 @@ def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
 
     gallery_path = create_gallery_html(repo_root, images)
     log(f"Created gallery {gallery_path.name}")
-    commit_and_push([gallery_path], f"Add gallery {gallery_path.stem}", repo_root, log)
+    image_dir = repo_root / "images"
+    commit_and_push(
+        [gallery_path, image_dir],
+        f"Add gallery {gallery_path.stem}",
+        repo_root,
+        log,
+    )
 
     media_base = infer_pages_base(repo_root, log)
     rows = build_rows(pins, boards, images, media_base, log)
