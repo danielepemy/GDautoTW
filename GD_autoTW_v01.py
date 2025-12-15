@@ -282,8 +282,18 @@ def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
         log("Script is outside repo; not auto-adding.")
 
     extra_files: List[Path] = []
+    env_dir = repo_root / "GD_autoTW_env"
     for pattern in ("*.csv", "*.txt"):
-        extra_files.extend(p for p in repo_root.rglob(pattern) if p.is_file())
+        for candidate in repo_root.rglob(pattern):
+            if not candidate.is_file():
+                continue
+            try:
+                rel = candidate.relative_to(repo_root)
+            except ValueError:
+                continue
+            if env_dir in candidate.parents:
+                continue
+            extra_files.append(candidate)
     if extra_files:
         log(f"Staging {len(extra_files)} CSV/TXT files in repository.")
     files_to_commit.extend(extra_files)
