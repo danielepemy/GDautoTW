@@ -273,7 +273,7 @@ def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
     write_csv(csv_path, rows)
     log(f"Wrote autoTW.csv with {len(rows)} rows.")
 
-    files_to_commit = [csv_path, gallery_path]
+    files_to_commit: List[Path] = [csv_path, gallery_path]
     script_path = Path(__file__).resolve()
     try:
         script_path.relative_to(repo_root)
@@ -281,7 +281,23 @@ def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
     except ValueError:
         log("Script is outside repo; not auto-adding.")
 
-    commit_and_push(files_to_commit, f"Update autoTW {datetime.now():%Y-%m-%d %H:%M}", repo_root, log)
+    extra_files: List[Path] = []
+    for pattern in ("*.csv", "*.txt"):
+        extra_files.extend(p for p in repo_root.rglob(pattern) if p.is_file())
+    if extra_files:
+        log(f"Staging {len(extra_files)} CSV/TXT files in repository.")
+    files_to_commit.extend(extra_files)
+
+    deduped: List[Path] = []
+    seen: set[Path] = set()
+    for path in files_to_commit:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        deduped.append(resolved)
+
+    commit_and_push(deduped, f"Update autoTW {datetime.now():%Y-%m-%d %H:%M}", repo_root, log)
     log("autoTW.csv update complete.")
 
 
