@@ -157,11 +157,12 @@ def commit_and_push(files: Sequence[Path], message: str, repo_root: Path, log: C
 
     commit_proc = run_git(["commit", "-m", message], repo_root)
     if commit_proc.returncode != 0:
-        stderr = commit_proc.stderr.strip().lower()
-        if "nothing to commit" in stderr:
+        combined = (commit_proc.stdout + commit_proc.stderr).strip().lower()
+        if "nothing to commit" in combined:
             log("No changes to commit.")
         else:
-            raise RuntimeError(f"git commit failed: {commit_proc.stderr.strip()}")
+            error_text = commit_proc.stderr.strip() or commit_proc.stdout.strip()
+            raise RuntimeError(f"git commit failed: {error_text}")
     else:
         log(f"Committed: {message}")
 
