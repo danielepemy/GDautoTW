@@ -174,7 +174,7 @@ def commit_and_push(files: Sequence[Path], message: str, repo_root: Path, log: C
     commit_proc = run_git(["commit", "-m", message], repo_root)
     if commit_proc.returncode != 0:
         combined = (commit_proc.stdout + commit_proc.stderr).strip().lower()
-        if "nothing to commit" in combined:
+        if "nothing to commit" in combined or "no changes added to commit" in combined:
             log("No changes to commit.")
         else:
             error_text = commit_proc.stderr.strip() or commit_proc.stdout.strip()
