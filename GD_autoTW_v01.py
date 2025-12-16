@@ -151,7 +151,23 @@ def commit_and_push(files: Sequence[Path], message: str, repo_root: Path, log: C
     if not rel_paths:
         raise RuntimeError("No files to commit.")
 
-    add_proc = run_git(["add", *rel_paths], repo_root)
+    tracked: List[str] = []
+    ignored: List[str] = []
+    for rel in rel_paths:
+        check = run_git(["check-ignore", rel], repo_root)
+        if check.returncode == 0:
+            ignored.append(rel)
+        elif check.returncode == 1:
+            tracked.append(rel)
+        else:
+            detail = check.stderr.strip() or check.stdout.strip()
+            raise RuntimeError(f"git check-ignore failed for {rel}: {detail}")
+    for rel in ignored:
+        log(f"Skipping ignored path: {rel}")
+    if not tracked:
+        raise RuntimeError("No non-ignored paths to commit.")
+
+    add_proc = run_git(["add", *tracked], repo_root)
     if add_proc.returncode != 0:
         raise RuntimeError(f"git add failed: {add_proc.stderr.strip()}")
 
