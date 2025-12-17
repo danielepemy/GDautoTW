@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GD_autoTW_v01
+GD_autoTW_v02
 
 - PyQt UI: select folder, view log, run generator.
 - Builds a timestamped gallery HTML using images/, commits & pushes it first.
@@ -29,6 +29,8 @@ from PyQt5 import QtCore, QtWidgets
 CSV_HEADER = ["Pin_title", "Pin_description", "Website_link", "Media_url", "Board_id", "Alt_text"]
 # Only count jpg/jpeg files for row generation
 IMAGE_EXT = {".jpg", ".jpeg"}
+IMAGE_PREFIXES = ("images/",)
+LOCAL_INPUT_FILES = {"Pinterest Pin Descriptions.txt", "board_list.csv"}
 
 PIN_PATTERN = re.compile(
     r"Pin\s*\d+\s*:\s*Title:\s*(?P<title>.*?)\s*Description:\s*(?P<description>.*?)\s*"
@@ -162,15 +164,6 @@ def current_user_slug(repo_root: Path) -> str:
     return sanitize_slug(getpass.getuser())
 
 
-def ensure_clean_worktree(repo_root: Path, log: Callable[[str], None]) -> None:
-    status = run_git(["status", "--porcelain"], repo_root)
-    if status.returncode != 0:
-        detail = status.stderr.strip() or status.stdout.strip()
-        raise RuntimeError(f"git status failed: {detail}")
-    if status.stdout.strip():
-        raise RuntimeError("Working tree is not clean. Commit/stash or remove local changes before running.")
-
-
 def ensure_branch(repo_root: Path, log: Callable[[str], None]) -> str:
     user = current_user_slug(repo_root)
     branch = f"auto/{user}-{datetime.now():%Y%m%d-%H%M%S}"
@@ -182,11 +175,103 @@ def ensure_branch(repo_root: Path, log: Callable[[str], None]) -> str:
     return branch
 
 
+def categorize_dirty_paths(repo_root: Path) -> tuple[List[str], List[str], List[str]]:
+    status = run_git(["status", "--porcelain"], repo_root)
+    if status.returncode != 0:
+        detail = status.stderr.strip() or status.stdout.strip()
+        raise RuntimeError(f"git status failed: {detail}")
+    commit_paths: List[str] = []
+    local_paths: List[str] = []
+    other_paths: List[str] = []
+    for line in status.stdout.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[-1]
+        if any(path.startswith(prefix) for prefix in IMAGE_PREFIXES):
+            commit_paths.append(path)
+        elif path in LOCAL_INPUT_FILES:
+            local_paths.append(path)
+        else:
+            other_paths.append(path)
+    return commit_paths, local_paths, other_paths
+
+
+def stash_all_changes(repo_root: Path, log: Callable[[str], None]) -> bool:
+    commit_paths, local_paths, other_paths = categorize_dirty_paths(repo_root)
+    if other_paths:
+        raise RuntimeError(
+            "Working tree has unexpected changes: " + ", ".join(other_paths) + ". Please clean or commit them."
+        )
+    if not commit_paths and not local_paths:
+        return False
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stash_name = f"autoTW-prep-{ts}"
+    log("Saving working tree before Git operations.")
+    stash = run_git(["stash", "push", "-u", "-m", stash_name], repo_root)
+    if stash.returncode != 0:
+        detail = stash.stderr.strip() or stash.stdout.strip()
+        raise RuntimeError(f"git stash failed: {detail}")
+    return True
+
+
+def stash_local_inputs(repo_root: Path, log: Callable[[str], None]) -> bool:
+    targets: List[str] = []
+    for path in sorted(LOCAL_INPUT_FILES):
+        file_path = repo_root / path
+        if not file_path.exists():
+            continue
+        status = run_git(["ls-files", "-v", "--", path], repo_root)
+        if status.returncode != 0:
+            detail = status.stderr.strip() or status.stdout.strip()
+            raise RuntimeError(f"git ls-files failed for {path}: {detail}")
+        if status.stdout.startswith("S "):  # skip-worktree entry, leave untouched
+            continue
+        targets.append(path)
+    if not targets:
+        return False
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stash_name = f"autoTW-inputs-{ts}"
+    stash = run_git(["stash", "push", "-u", "-m", stash_name, "--", *targets], repo_root)
+    if stash.returncode == 0:
+        log("Temporarily stashed local input files.")
+        return True
+    detail = stash.stderr.strip() or stash.stdout.strip()
+    if "No local changes to save" in detail:
+        return False
+    raise RuntimeError(f"git stash inputs failed: {detail}")
+
+
+def pop_stash_if_needed(flag: bool, repo_root: Path, log: Callable[[str], None]) -> None:
+    if not flag:
+        return
+    pop = run_git(["stash", "pop"], repo_root)
+    if pop.returncode != 0:
+        detail = pop.stderr.strip() or pop.stdout.strip()
+        raise RuntimeError(f"git stash pop failed: {detail}")
+    log("Restored stashed changes.")
+
+
+def fast_forward_main(branch: str, repo_root: Path, log: Callable[[str], None]) -> None:
+    log(f"Merging {branch} back to main.")
+    run_git_checked(["checkout", "main"], repo_root, "git checkout main failed")
+    run_git_checked(["pull", "--rebase", "origin", "main"], repo_root, "git pull --rebase failed")
+    merge = run_git(["merge", "--ff-only", branch], repo_root)
+    if merge.returncode != 0:
+        detail = merge.stderr.strip() or merge.stdout.strip()
+        raise RuntimeError(f"git merge --ff-only {branch} failed: {detail}")
+    run_git_checked(["push", "origin", "main"], repo_root, "git push main failed")
+    run_git(["branch", "-d", branch], repo_root)
+    log("Main branch updated and pushed.")
+
+
 def commit_and_push(
     files: Sequence[Path],
     message: str,
     repo_root: Path,
     log: Callable[[str], None],
+    push: bool = True,
     push_branch: str | None = None,
 ) -> None:
     rel_paths: List[str] = []
@@ -235,10 +320,11 @@ def commit_and_push(
     else:
         push_args = ["push", "-u", "origin", push_branch or "HEAD"]
 
-    push_proc = run_git(push_args, repo_root)
-    if push_proc.returncode != 0:
-        raise RuntimeError(f"git push failed: {push_proc.stderr.strip()}")
-    log("Pushed to origin.")
+    if push:
+        push_proc = run_git(push_args, repo_root)
+        if push_proc.returncode != 0:
+            raise RuntimeError(f"git push failed: {push_proc.stderr.strip()}")
+        log("Pushed to origin.")
 
 
 def infer_pages_base(repo_root: Path, log: Callable[[str], None]) -> str:
@@ -308,8 +394,9 @@ def write_csv(csv_path: Path, rows: Sequence[Dict[str, str]]) -> None:
 def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
     repo_root = repo_root.resolve()
     log(f"Using repository at {repo_root}")
-    ensure_clean_worktree(repo_root, log)
+    stashed_initial = stash_all_changes(repo_root, log)
     branch = ensure_branch(repo_root, log)
+    pop_stash_if_needed(stashed_initial, repo_root, log)
 
     board_csv = locate_board_csv(repo_root)
     boards = load_boards(board_csv)
@@ -335,7 +422,7 @@ def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
         f"Add gallery {gallery_path.stem}",
         repo_root,
         log,
-        push_branch=branch,
+        push=False,
     )
 
     media_base = infer_pages_base(repo_root, log)
@@ -344,6 +431,9 @@ def run_pipeline(repo_root: Path, log: Callable[[str], None]) -> None:
     csv_path = repo_root / "autoTW.csv"
     write_csv(csv_path, rows)
     log(f"Wrote autoTW.csv with {len(rows)} rows (kept locally, not committed).")
+    stashed_inputs = stash_local_inputs(repo_root, log)
+    fast_forward_main(branch, repo_root, log)
+    pop_stash_if_needed(stashed_inputs, repo_root, log)
 
 
 class Worker(QtCore.QObject):
