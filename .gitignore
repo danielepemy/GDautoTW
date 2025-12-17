@@ -1,3 +1,7 @@
 build/
 dist/
 .pyinstaller/
+.DS_Store
+*.app
+GD_autoTW_v01.spec
+GD__tailwind_logo.icns
