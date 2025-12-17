@@ -198,14 +198,25 @@ def categorize_dirty_paths(repo_root: Path) -> tuple[List[str], List[str], List[
     return commit_paths, local_paths, other_paths
 
 
-def stash_all_changes(repo_root: Path, log: Callable[[str], None]) -> bool:
+def _locate_stash_ref(repo_root: Path, marker: str) -> str | None:
+    listing = run_git(["stash", "list"], repo_root)
+    if listing.returncode != 0:
+        detail = listing.stderr.strip() or listing.stdout.strip()
+        raise RuntimeError(f"git stash list failed: {detail}")
+    for line in listing.stdout.splitlines():
+        if marker in line:
+            return line.split(":", 1)[0]
+    return None
+
+
+def stash_all_changes(repo_root: Path, log: Callable[[str], None]) -> str | None:
     commit_paths, local_paths, other_paths = categorize_dirty_paths(repo_root)
     if other_paths:
         raise RuntimeError(
             "Working tree has unexpected changes: " + ", ".join(other_paths) + ". Please clean or commit them."
         )
     if not commit_paths and not local_paths:
-        return False
+        return None
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     stash_name = f"autoTW-prep-{ts}"
     log("Saving working tree before Git operations.")
@@ -213,10 +224,10 @@ def stash_all_changes(repo_root: Path, log: Callable[[str], None]) -> bool:
     if stash.returncode != 0:
         detail = stash.stderr.strip() or stash.stdout.strip()
         raise RuntimeError(f"git stash failed: {detail}")
-    return True
+    return _locate_stash_ref(repo_root, stash_name)
 
 
-def stash_local_inputs(repo_root: Path, log: Callable[[str], None]) -> bool:
+def stash_local_inputs(repo_root: Path, log: Callable[[str], None]) -> str | None:
     targets: List[str] = []
     for path in sorted(LOCAL_INPUT_FILES):
         file_path = repo_root / path
@@ -230,23 +241,23 @@ def stash_local_inputs(repo_root: Path, log: Callable[[str], None]) -> bool:
             continue
         targets.append(path)
     if not targets:
-        return False
+        return None
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     stash_name = f"autoTW-inputs-{ts}"
     stash = run_git(["stash", "push", "-u", "-m", stash_name, "--", *targets], repo_root)
     if stash.returncode == 0:
         log("Temporarily stashed local input files.")
-        return True
+        return _locate_stash_ref(repo_root, stash_name)
     detail = stash.stderr.strip() or stash.stdout.strip()
     if "No local changes to save" in detail:
-        return False
+        return None
     raise RuntimeError(f"git stash inputs failed: {detail}")
 
 
-def pop_stash_if_needed(flag: bool, repo_root: Path, log: Callable[[str], None]) -> None:
-    if not flag:
+def pop_stash_if_needed(stash_ref: str | None, repo_root: Path, log: Callable[[str], None]) -> None:
+    if not stash_ref:
         return
-    pop = run_git(["stash", "pop"], repo_root)
+    pop = run_git(["stash", "pop", stash_ref], repo_root)
     if pop.returncode != 0:
         detail = pop.stderr.strip() or pop.stdout.strip()
         raise RuntimeError(f"git stash pop failed: {detail}")
